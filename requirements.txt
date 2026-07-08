@@ -1,0 +1,37 @@
+streamlit
+pandas
+openai
+psycopg2-binary
+requests
+beautifulsoup4
+pypdf
+python-docx
+openpyxl
+python-pptx
+tavily-python
+langchain
+langchain-core
+langchain-community
+langchain-text-splitters
+langchain-openai
+langchain-cohere
+langchain-huggingface
+langgraph
+fastapi
+uvicorn
+chromadb
+cohere
+sentence-transformers
+tiktoken
+pydantic
+sqlalchemy
+python-dotenv
+pyyaml
+
+# backend/llm/ (config-driven LLM Manager) test suite
+pytest
+
+# required by the anthropic model entry in backend/llm/config/models.yaml
+# (provider: litellm) -- any other model added with provider: litellm needs
+# this too; models using provider: openai_compatible don't.
+litellm
