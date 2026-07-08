@@ -1,0 +1,122 @@
+# Model registry — configuration-driven so the catalog can change without touching code.
+#
+# Every provider here speaks the OpenAI-compatible /chat/completions schema, so a single
+# generic provider (providers/openai_compatible.py) can call all of them. If you add a
+# model that ONLY has a native SDK, add a new provider module and set provider: <name>.
+#
+# key_env: list of env var / Streamlit-secret names checked in order (first non-placeholder wins).
+# free: whether this is a free-tier/free-model entry (used by cost scoring).
+# tags: capability hints used by routing.yaml's task -> candidate mapping.
+
+models:
+  groq_fast:
+    provider: openai_compatible
+    display_name: "Groq"
+    base_url_env: GROQ_BASE_URL
+    base_url_default: https://api.groq.com/openai/v1
+    key_env: [GROQ_API_KEY]
+    model_env: GROQ_MODEL
+    model_default: llama-4-maverick-17b-128e-instruct
+    timeout_env: VOICE_LLM_TIMEOUT_SECONDS
+    timeout_default: 6.0
+    context_length: 128000
+    free: true
+    tags: [voice, fast, general, rag_answer, translation, classification, reasoning]
+
+  gemini_flash:
+    provider: openai_compatible
+    display_name: "Gemini"
+    base_url_env: GEMINI_BASE_URL
+    base_url_default: https://generativelanguage.googleapis.com/v1beta/openai
+    key_env: [GEMINI_API_KEY, GOOGLE_API_KEY, GOOGLE_GEMINI_API_KEY]
+    model_env: GEMINI_MODEL
+    model_default: gemini-3.1-flash-live
+    timeout_env: VOICE_LLM_TIMEOUT_SECONDS
+    timeout_default: 6.0
+    context_length: 1000000
+    free: true
+    tags: [voice, fast, multilingual, translation, rag_answer, classification, reasoning]
+
+  llama4_maverick_openrouter:
+    provider: openai_compatible
+    display_name: "OpenRouter (Llama 4 Maverick)"
+    base_url_env: LLAMA4_MAVERICK_BASE_URL
+    base_url_default: https://openrouter.ai/api/v1
+    key_env: [LLAMA4_MAVERICK_API_KEY, OPENROUTER_API_KEY]
+    model_env: LLAMA4_MAVERICK_MODEL
+    model_default: meta-llama/llama-4-maverick
+    timeout_env: VOICE_LLM_TIMEOUT_SECONDS
+    timeout_default: 6.0
+    context_length: 128000
+    free: false
+    tags: [voice, reasoning, rag_answer, translation, classification]
+
+  huggingface_router:
+    provider: openai_compatible
+    display_name: "HuggingFace Router"
+    base_url_env: HF_BASE_URL
+    base_url_default: https://router.huggingface.co/v1
+    key_env: [HF_TOKEN, HF_API_KEY, HUGGINGFACE_API_KEY, HUGGINGFACEHUB_API_TOKEN]
+    model_env: HF_MODEL
+    model_default: Qwen/Qwen2.5-7B-Instruct
+    timeout_env: LLM_TIMEOUT_SECONDS
+    timeout_default: 45.0
+    context_length: 32000
+    free: true
+    tags: [general, multilingual, rag_answer, translation, classification, reasoning]
+
+  openrouter_free:
+    provider: openai_compatible
+    display_name: "OpenRouter (Free Llama 3.1)"
+    base_url_env: OPENROUTER_BASE_URL
+    base_url_default: https://openrouter.ai/api/v1
+    key_env: [OPENROUTER_API_KEY]
+    model_env: OPENROUTER_MODEL
+    model_default: "meta-llama/llama-3.1-8b-instruct:free"
+    timeout_env: LLM_TIMEOUT_SECONDS
+    timeout_default: 45.0
+    context_length: 128000
+    free: true
+    tags: [general, rag_answer, classification, translation, reasoning]
+
+  grok:
+    provider: openai_compatible
+    display_name: "Grok (x.ai)"
+    base_url_env: GROK_BASE_URL
+    base_url_default: https://api.x.ai/v1
+    key_env: [GROK_API_KEY, XAI_API_KEY]
+    model_env: GROK_MODEL
+    model_default: grok-2-latest
+    timeout_env: LLM_TIMEOUT_SECONDS
+    timeout_default: 45.0
+    context_length: 128000
+    free: false
+    tags: [reasoning, general, rag_answer, paid_fallback, translation, classification]
+
+  openai:
+    provider: openai_compatible
+    display_name: "OpenAI"
+    base_url_env: OPENAI_BASE_URL
+    base_url_default: https://api.openai.com/v1
+    key_env: [OPENAI_API_KEY]
+    model_env: OPENAI_MODEL
+    model_default: gpt-4o-mini
+    timeout_env: LLM_TIMEOUT_SECONDS
+    timeout_default: 45.0
+    context_length: 128000
+    free: false
+    tags: [general, reasoning, rag_answer, translation, classification]
+
+  anthropic:
+    provider: litellm
+    display_name: "Anthropic (Claude)"
+    base_url_env: ANTHROPIC_BASE_URL
+    base_url_default: ""
+    key_env: [ANTHROPIC_API_KEY]
+    model_env: ANTHROPIC_MODEL
+    model_default: "anthropic/claude-3-5-haiku-20241022"
+    timeout_env: LLM_TIMEOUT_SECONDS
+    timeout_default: 45.0
+    context_length: 200000
+    free: false
+    tags: [general, reasoning, rag_answer, translation, classification]

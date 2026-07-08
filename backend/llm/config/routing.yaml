@@ -1,0 +1,55 @@
+# Task-based routing. Each task lists candidate model ids in *priority* order.
+# The router only uses this as a starting rank — final order is re-scored at
+# request time using live health + telemetry (see scoring.py). Priority order
+# matters most when there is no telemetry yet (cold start) and acts as a tie-breaker.
+#
+# "default" and "fast_mode" for rag_answer intentionally reproduce the original
+# hardcoded _provider_chain() order from mas_engine.py so behavior doesn't regress.
+
+tasks:
+  rag_answer:
+    fast_mode:
+      - groq_fast
+      - gemini_flash
+      - llama4_maverick_openrouter
+      - huggingface_router
+      - openrouter_free
+      - grok
+      - openai
+      - anthropic
+    default:
+      - huggingface_router
+      - openrouter_free
+      - groq_fast
+      - gemini_flash
+      - llama4_maverick_openrouter
+      - grok
+      - openai
+      - anthropic
+
+  translation:
+    default:
+      - gemini_flash
+      - huggingface_router
+      - openrouter_free
+      - openai
+      - anthropic
+
+  classification:
+    default:
+      - openrouter_free
+      - groq_fast
+      - huggingface_router
+      - openai
+      - anthropic
+
+  reasoning:
+    default:
+      - llama4_maverick_openrouter
+      - grok
+      - openrouter_free
+      - openai
+      - anthropic
+
+# Fallback used when a requested task has no entry above.
+default_task: rag_answer
