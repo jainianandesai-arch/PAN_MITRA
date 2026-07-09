@@ -33,6 +33,7 @@ st.set_page_config(
 from components.styles import apply_global_css
 from components.sidebar import render_sidebar
 from components.header import chakra_svg
+from components.mermaid import render_mermaid
 
 apply_global_css()
 
@@ -342,7 +343,9 @@ def _render_pipeline():
         else:
             st.caption("No tools were called on this run (blocked or escalated before reaching the agent loop).")
 
-        with st.expander("View raw LangGraph definition (Mermaid)"):
+        with st.expander("View LangGraph definition (Mermaid)", expanded=False):
+            render_mermaid(default_orchestrator.graph_mermaid())
+            st.caption("Raw Mermaid source (if the diagram above doesn't render, e.g. offline):")
             st.code(default_orchestrator.graph_mermaid(), language="text")
 
 
