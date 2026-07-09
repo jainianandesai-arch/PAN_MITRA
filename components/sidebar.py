@@ -99,8 +99,8 @@ def render_sidebar() -> dict:
 
         # ── Footer ──────────────────────────────────────────────────────────────
         st.markdown(
-            '<div style="position:absolute;bottom:1rem;left:0;right:0;'
-            'text-align:center;font-size:.72rem;color:#475569">'
+            '<div style="margin-top:1.5rem;text-align:center;font-size:.72rem;'
+            'color:#475569">'
             "PAN Mitra © 2026 | LangGraph Tool-Calling Agent</div>",
             unsafe_allow_html=True,
         )
