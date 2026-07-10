@@ -42,6 +42,7 @@ class PANState(TypedDict, total=False):
     confidence: float
     pii_blocked: bool
     escalated: bool
+    escalation_reason: str
     messages: list
     tool_calls_made: list
     iterations: int
@@ -93,6 +94,7 @@ def _tool_create_tracking_record(state, args):
 def _tool_escalate_to_officer(state, args):
     reason = (args or {}).get("reason") or "Agent requested human review"
     state["escalated"] = True
+    state["escalation_reason"] = reason
 
     tracking_id = pan_tracking.escalate(
         app_id=state.get("tracking_id"),
@@ -378,6 +380,7 @@ def _initial_state(service_type, query, applicant_label, cloud_consent) -> PANSt
         "cloud_consent": bool(cloud_consent),
         "pii_blocked": False,
         "escalated": False,
+        "escalation_reason": "",
         "messages": [],
         "tool_calls_made": [],
         "iterations": 0,
@@ -393,6 +396,7 @@ def _finalize_result(final_state: dict, node_sequence: list) -> dict:
         "confidence": final_state.get("confidence", 0.0),
         "pii_blocked": final_state.get("pii_blocked", False),
         "escalated": final_state.get("escalated", False),
+        "escalation_reason": final_state.get("escalation_reason", ""),
         "tracking_id": final_state.get("tracking_id"),
         "tool_calls_made": final_state.get("tool_calls_made", []),
         "node_sequence": node_sequence,

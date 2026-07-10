@@ -356,6 +356,7 @@ div[data-baseweb="base-input"]:focus-within { border-color: var(--primary) !impo
 .pan-node-done { border-color: var(--success); background: #f0fdf4; color: #166534; }
 .pan-node-tool { border-color: var(--accent); background: #fff7ed; color: #9a3412; }
 .pan-node-blocked { border-color: var(--danger); background: #fef2f2; color: #991b1b; }
+.pan-node-escalate { border-color: #d97706; background: #fef3c7; color: #92400e; }
 .pan-node-active {
   border-color: var(--primary); background: var(--primary-light); color: var(--primary);
   animation: pan-node-pulse 1.4s ease-in-out infinite;
