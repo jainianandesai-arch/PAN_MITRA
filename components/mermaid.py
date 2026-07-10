@@ -64,11 +64,18 @@ def render_mermaid(diagram: str, height: int = 420) -> None:
         return lastSvg;
       }}
 
+      function reportHeight() {{
+        const h = document.body.scrollHeight + 24;
+        window.parent.postMessage({{ type: "streamlit:setFrameHeight", height: h }}, "*");
+      }}
+
       renderWithRetry(15).then((svg) => {{
         document.getElementById("mermaid-container").innerHTML = svg;
+        reportHeight();
       }}).catch((err) => {{
         document.getElementById("mermaid-container").textContent = "Mermaid render error: " + err;
+        reportHeight();
       }});
     </script>
     """
-    components.html(html, height=height, scrolling=True)
+    components.html(html, height=height, scrolling=False)

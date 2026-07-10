@@ -99,7 +99,12 @@ def _render_live_node_flow(sequence, active_node=None, blocked=False):
     it's just appending, not indexing into a fixed set of positions."""
     boxes = []
     for node in sequence:
-        css_class = "pan-node-tool" if node == "tools" else "pan-node-done"
+        if node == "tools":
+            css_class = "pan-node-tool"
+        elif node == "escalate":
+            css_class = "pan-node-escalate"
+        else:
+            css_class = "pan-node-done"
         boxes.append(f'<div class="pan-node {css_class}">{NODE_LABELS.get(node, node)}</div>')
         boxes.append('<div class="pan-arrow">→</div>')
     if active_node:
@@ -116,7 +121,17 @@ def _render_pan_result(result):
         st.error(result["final_answer"])
     elif result["escalated"]:
         st.warning(result["final_answer"])
-        st.caption("This request is now in the Escalated to Officer tab.")
+        below_threshold = result["confidence"] < CONFIDENCE_ESCALATION_THRESHOLD
+        conf_label = (
+            f"Confidence {result['confidence']:.2f} &lt; {CONFIDENCE_ESCALATION_THRESHOLD:.2f} threshold"
+            if below_threshold else f"Confidence {result['confidence']:.2f}"
+        )
+        badges = '<span class="csc-badge csc-badge-amber">🧑‍💼 Human-in-the-loop triggered</span> '
+        badges += f'<span class="csc-badge csc-badge-amber">{conf_label}</span>'
+        if result.get("tracking_id"):
+            badges += f' <span class="csc-badge csc-badge-green">Reference: PAN-{result["tracking_id"]}</span>'
+        st.markdown(badges, unsafe_allow_html=True)
+        st.caption(f"Reason: {result.get('escalation_reason') or 'Escalated for human review'} — now waiting for an officer in the Escalated to Officer tab.")
     else:
         badges = ""
         if result.get("tracking_id"):
@@ -295,6 +310,7 @@ def _render_tracked_requests():
 
 def _render_escalated():
     st.markdown('<div class="section-hdr">Escalated to Officer (PAN)</div>', unsafe_allow_html=True)
+    st.caption("🧑‍💼 Human-in-the-loop queue — requests the agent couldn't confidently resolve on its own, held here for a human officer to review before anything is finalized.")
     reviews = pan_tracking.list_pending_escalations(limit=50)
     if not reviews:
         st.caption("No PAN requests currently awaiting officer review.")
@@ -323,12 +339,25 @@ def _render_pipeline():
     if not result:
         st.info("Submit a request in New Request to see the live pipeline trace here.")
     else:
+        if result.get("escalated"):
+            below_threshold = result["confidence"] < CONFIDENCE_ESCALATION_THRESHOLD
+            conf_label = (
+                f"confidence {result['confidence']:.2f} was below the {CONFIDENCE_ESCALATION_THRESHOLD:.2f} escalation threshold"
+                if below_threshold else f"the agent chose to escalate at confidence {result['confidence']:.2f}"
+            )
+            st.warning(
+                f"🧑‍💼 **Human-in-the-loop triggered on this run** — {conf_label}, so this request was "
+                f"routed to a human officer instead of being auto-resolved. Reason: "
+                f"{result.get('escalation_reason') or 'Escalated for human review'}."
+            )
         sequence = result.get("node_sequence", [])
         nodes_html = []
         for i, node in enumerate(sequence):
             css_class = "pan-node-done"
             if node == "pii_guard" and result.get("pii_blocked"):
                 css_class = "pan-node-blocked"
+            elif node == "escalate":
+                css_class = "pan-node-escalate"
             elif node == "tools":
                 css_class = "pan-node-tool"
             nodes_html.append(f'<div class="pan-node {css_class}">{NODE_LABELS.get(node, node)}</div>')
