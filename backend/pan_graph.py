@@ -219,9 +219,17 @@ def looks_like_complaint(query):
     """Deterministic keyword check -- not an LLM decision, same reasoning as
     the PII/confidence gates. Only used to decide whether to show the
     citizen a "file a complaint?" confirmation before running the pipeline;
-    it never escalates by itself."""
+    it never escalates by itself.
+
+    Also true for anything matching the Quick Resolution Matrix (defined
+    below) -- otherwise a query like "my document was rejected, objection
+    raised" would match a matrix category but never reach the confirmation
+    prompt in the first place, since _COMPLAINT_TERMS alone doesn't cover
+    that phrasing."""
     text = f" {(query or '').lower()} "
-    return any(_term_matches(text, term) for term in _COMPLAINT_TERMS)
+    if any(_term_matches(text, term) for term in _COMPLAINT_TERMS):
+        return True
+    return match_quick_resolution(query) is not None
 
 
 # Quick Resolution Matrix -- from the CSC PAN Grievance policy's "Part 1:
