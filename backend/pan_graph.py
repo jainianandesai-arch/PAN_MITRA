@@ -536,6 +536,7 @@ def _finalize_result(final_state: dict, node_sequence: list) -> dict:
         "confirmed_complaint": final_state.get("confirmed_complaint", False),
         "additional_guidance": final_state.get("additional_guidance", ""),
         "quick_resolution": final_state.get("quick_resolution"),
+        "official_tracking_url": RECORDS_BY_KEY.get(final_state.get("service_type"), {}).get("official_tracking_url", ""),
         "tracking_id": final_state.get("tracking_id"),
         "tool_calls_made": final_state.get("tool_calls_made", []),
         "node_sequence": node_sequence,

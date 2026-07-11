@@ -141,6 +141,8 @@ def _render_pan_result(result):
                 f"{qr['action']}\n\n"
                 f"*Standard resolution window: {qr['window']}*"
             )
+        if result.get("official_tracking_url"):
+            st.markdown(f"🔗 [Check your live status on the official portal]({result['official_tracking_url']})")
         if result.get("additional_guidance"):
             st.markdown("**You also asked for guidance — here's what we have while you wait:**")
             st.markdown(result["additional_guidance"])
