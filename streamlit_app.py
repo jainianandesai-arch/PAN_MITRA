@@ -39,13 +39,14 @@ apply_global_css()
 
 # ── Backend imports (all wrapped; no crash on missing deps) ───────────────────
 try:
-    from backend.pan_graph import default_orchestrator, CONFIDENCE_ESCALATION_THRESHOLD
+    from backend.pan_graph import default_orchestrator, CONFIDENCE_ESCALATION_THRESHOLD, looks_like_complaint
     from backend import pan_tracking
     BACKEND_READY = True
 except ImportError as e:
     logging.error(f"backend.pan_graph/pan_tracking: {e}")
     default_orchestrator = None
     CONFIDENCE_ESCALATION_THRESHOLD = 0.5
+    looks_like_complaint = lambda query: False
     pan_tracking = None
     BACKEND_READY = False
 
@@ -126,7 +127,8 @@ def _render_pan_result(result):
             f"Confidence {result['confidence']:.2f} &lt; {CONFIDENCE_ESCALATION_THRESHOLD:.2f} threshold"
             if below_threshold else f"Confidence {result['confidence']:.2f}"
         )
-        badges = '<span class="csc-badge csc-badge-amber">🧑‍💼 Human-in-the-loop triggered</span> '
+        hitl_label = "📋 Complaint filed" if result.get("confirmed_complaint") else "🧑‍💼 Human-in-the-loop triggered"
+        badges = f'<span class="csc-badge csc-badge-amber">{hitl_label}</span> '
         badges += f'<span class="csc-badge csc-badge-amber">{conf_label}</span>'
         if result.get("tracking_id"):
             badges += f' <span class="csc-badge csc-badge-green">Reference: PAN-{result["tracking_id"]}</span>'
@@ -177,7 +179,7 @@ def _render_new_request():
     if cleared:
         for key in (
             "pan_run_gen", "pan_run_result", "pan_run_error", "pan_run_phase",
-            "pan_last_result", "pan_last_result_at",
+            "pan_last_result", "pan_last_result_at", "pan_pending_request",
             "pan_form_service", "pan_form_applicant", "pan_form_query",
             "pan_form_consent",
         ):
@@ -188,15 +190,20 @@ def _render_new_request():
         if not query.strip():
             st.error("Please describe what the citizen needs help with.")
         else:
-            st.session_state["pan_run_gen"] = default_orchestrator.stream(
-                service_type=SERVICE_KEY_BY_LABEL[service_label],
-                query=query.strip(),
-                applicant_label=applicant_label.strip() or "citizen",
-                cloud_consent=cloud_consent,
-            )
-            st.session_state["pan_run_result"] = None
-            st.session_state["pan_run_error"] = None
-            st.session_state["pan_run_phase"] = "advance"
+            pending = {
+                "service_type": SERVICE_KEY_BY_LABEL[service_label],
+                "query": query.strip(),
+                "applicant_label": applicant_label.strip() or "citizen",
+                "cloud_consent": cloud_consent,
+            }
+            if looks_like_complaint(pending["query"]):
+                st.session_state["pan_pending_request"] = pending
+                st.session_state["pan_run_phase"] = "confirm_complaint"
+            else:
+                st.session_state["pan_run_gen"] = default_orchestrator.stream(confirmed_complaint=False, **pending)
+                st.session_state["pan_run_result"] = None
+                st.session_state["pan_run_error"] = None
+                st.session_state["pan_run_phase"] = "advance"
             st.rerun()
 
     phase = st.session_state.get("pan_run_phase", "idle")
@@ -210,7 +217,27 @@ def _render_new_request():
     # until control returns. st.rerun() is Streamlit's own guaranteed
     # commit point, so each stage is genuinely delivered. Same fix TMF's
     # Live Ingestion Demo needed for its own blocking Indexing/Sync calls.
-    if phase == "advance":
+    if phase == "confirm_complaint":
+        st.markdown('<div class="section-hdr">One Moment</div>', unsafe_allow_html=True)
+        st.warning(
+            "🧾 This sounds like it might be a **complaint** about a delayed or undelivered service, "
+            "not a request for guidance. Would you like to file a complaint? It will be escalated "
+            "directly to a human officer with a reference number for follow-up."
+        )
+        c1, c2 = st.columns(2)
+        with c1:
+            file_complaint = st.button("✅ Yes, file a complaint", type="primary", use_container_width=True, key="pan_confirm_complaint_yes")
+        with c2:
+            just_guidance = st.button("↩️ No, just give me guidance", use_container_width=True, key="pan_confirm_complaint_no")
+        if file_complaint or just_guidance:
+            pending = st.session_state.pop("pan_pending_request", {})
+            st.session_state["pan_run_gen"] = default_orchestrator.stream(confirmed_complaint=file_complaint, **pending)
+            st.session_state["pan_run_result"] = None
+            st.session_state["pan_run_error"] = None
+            st.session_state["pan_run_phase"] = "advance"
+            st.rerun()
+
+    elif phase == "advance":
         prior_result = st.session_state.get("pan_run_result")
         with flow_placeholder.container():
             st.markdown('<div class="section-hdr">Live Pipeline</div>', unsafe_allow_html=True)
@@ -220,7 +247,8 @@ def _render_new_request():
             node_name, result = next(st.session_state["pan_run_gen"])
             st.session_state["pan_run_result"] = result
             about_to_run_agent = (
-                (node_name == "classify" and result["confidence"] >= CONFIDENCE_ESCALATION_THRESHOLD)
+                (node_name == "classify" and result["confidence"] >= CONFIDENCE_ESCALATION_THRESHOLD
+                 and not result.get("confirmed_complaint"))
                 or node_name == "tools"
             )
             st.session_state["pan_run_phase"] = "waiting_agent" if about_to_run_agent else "advance"
@@ -341,12 +369,17 @@ def _render_pipeline():
     else:
         if result.get("escalated"):
             below_threshold = result["confidence"] < CONFIDENCE_ESCALATION_THRESHOLD
-            conf_label = (
-                f"confidence {result['confidence']:.2f} was below the {CONFIDENCE_ESCALATION_THRESHOLD:.2f} escalation threshold"
-                if below_threshold else f"the agent chose to escalate at confidence {result['confidence']:.2f}"
-            )
+            if result.get("confirmed_complaint"):
+                conf_label = f"the citizen confirmed this was a complaint (confidence {result['confidence']:.2f})"
+                title = "📋 **Complaint filed on this run**"
+            else:
+                conf_label = (
+                    f"confidence {result['confidence']:.2f} was below the {CONFIDENCE_ESCALATION_THRESHOLD:.2f} escalation threshold"
+                    if below_threshold else f"the agent chose to escalate at confidence {result['confidence']:.2f}"
+                )
+                title = "🧑‍💼 **Human-in-the-loop triggered on this run**"
             st.warning(
-                f"🧑‍💼 **Human-in-the-loop triggered on this run** — {conf_label}, so this request was "
+                f"{title} — {conf_label}, so this request was "
                 f"routed to a human officer instead of being auto-resolved. Reason: "
                 f"{result.get('escalation_reason') or 'Escalated for human review'}."
             )

@@ -43,6 +43,7 @@ class PANState(TypedDict, total=False):
     pii_blocked: bool
     escalated: bool
     escalation_reason: str
+    confirmed_complaint: bool
     messages: list
     tool_calls_made: list
     iterations: int
@@ -191,6 +192,32 @@ def _parse_decision(content):
 
 _GENERIC_PAN_TERMS = ("pan", "pan card", "pancard", "पैन")
 
+# Signals that a query is reporting a problem with a service already in
+# progress (delay/non-delivery/dissatisfaction) rather than asking for
+# guidance on how to use one -- these get a confirmation prompt in the UI
+# before escalating, since a keyword hit alone is too weak to silently
+# reroute someone who was actually just asking a normal question.
+_COMPLAINT_TERMS = (
+    "complaint", "complain", "grievance",
+    "not received", "not delivered", "not yet delivered", "not yet received",
+    "have not received", "haven't received", "havent received",
+    "did not receive", "didn't receive", "didnt receive",
+    "still waiting", "still pending", "still not received",
+    "not arrived", "hasn't arrived", "hasnt arrived", "has not arrived",
+    "delayed", "delay in", "overdue", "not resolved", "no response",
+    "not happy", "dissatisfied", "unsatisfied",
+    "time frame", "timeframe", "beyond time", "as promised", "was promised", "was told",
+)
+
+
+def looks_like_complaint(query):
+    """Deterministic keyword check -- not an LLM decision, same reasoning as
+    the PII/confidence gates. Only used to decide whether to show the
+    citizen a "file a complaint?" confirmation before running the pipeline;
+    it never escalates by itself."""
+    text = f" {(query or '').lower()} "
+    return any(_term_matches(text, term) for term in _COMPLAINT_TERMS)
+
 
 def _classify_and_score(query, service_type):
     resolved = service_type if service_type in RECORDS_BY_KEY else detect_service_key(query)
@@ -251,17 +278,27 @@ def classify_node(state: PANState) -> PANState:
 
 
 def route_after_classify(state: PANState) -> str:
-    if state.get("confidence", 0.0) < CONFIDENCE_ESCALATION_THRESHOLD:
+    if state.get("confirmed_complaint") or state.get("confidence", 0.0) < CONFIDENCE_ESCALATION_THRESHOLD:
         return "escalate"
     return "agent"
 
 
 def escalate_node(state: PANState) -> PANState:
-    _tool_escalate_to_officer(state, {"reason": "Low confidence resolving PAN service from query"})
-    state["final_answer"] = (
-        "I couldn't confidently match this to a specific PAN service, so it has been sent to an "
-        "officer for review. You'll be contacted, or you can check Escalated to Officer for updates."
-    )
+    if state.get("confirmed_complaint"):
+        _tool_escalate_to_officer(
+            state,
+            {"reason": "Citizen confirmed this is a complaint (service delay/non-delivery) -- needs human resolution, not guidance"},
+        )
+        state["final_answer"] = (
+            f"Your complaint has been logged and escalated to an officer. Reference: PAN-{state.get('tracking_id')}. "
+            "You'll be contacted for follow-up, or you can check Escalated to Officer for updates."
+        )
+    else:
+        _tool_escalate_to_officer(state, {"reason": "Low confidence resolving PAN service from query"})
+        state["final_answer"] = (
+            "I couldn't confidently match this to a specific PAN service, so it has been sent to an "
+            "officer for review. You'll be contacted, or you can check Escalated to Officer for updates."
+        )
     return state
 
 
@@ -372,7 +409,7 @@ def build_pan_graph():
     return graph.compile()
 
 
-def _initial_state(service_type, query, applicant_label, cloud_consent) -> PANState:
+def _initial_state(service_type, query, applicant_label, cloud_consent, confirmed_complaint=False) -> PANState:
     return {
         "query": query or "",
         "service_type": service_type or "",
@@ -381,6 +418,7 @@ def _initial_state(service_type, query, applicant_label, cloud_consent) -> PANSt
         "pii_blocked": False,
         "escalated": False,
         "escalation_reason": "",
+        "confirmed_complaint": bool(confirmed_complaint),
         "messages": [],
         "tool_calls_made": [],
         "iterations": 0,
@@ -397,6 +435,7 @@ def _finalize_result(final_state: dict, node_sequence: list) -> dict:
         "pii_blocked": final_state.get("pii_blocked", False),
         "escalated": final_state.get("escalated", False),
         "escalation_reason": final_state.get("escalation_reason", ""),
+        "confirmed_complaint": final_state.get("confirmed_complaint", False),
         "tracking_id": final_state.get("tracking_id"),
         "tool_calls_made": final_state.get("tool_calls_made", []),
         "node_sequence": node_sequence,
@@ -407,12 +446,12 @@ class PANOrchestrator:
     def __init__(self):
         self._graph = build_pan_graph()
 
-    def run(self, service_type, query, applicant_label, cloud_consent=False):
+    def run(self, service_type, query, applicant_label, cloud_consent=False, confirmed_complaint=False):
         """Blocking, single-call convenience wrapper -- runs the whole graph
         and returns the final result. Use .stream() instead when you want to
         show live per-node progress in a UI (see PAN Mitra's New Request
         tab, which streams this exactly like TMF's TMFOrchestrator.run())."""
-        initial_state = _initial_state(service_type, query, applicant_label, cloud_consent)
+        initial_state = _initial_state(service_type, query, applicant_label, cloud_consent, confirmed_complaint)
         node_sequence = []
         final_state = dict(initial_state)
         for update in self._graph.stream(initial_state, stream_mode="updates"):
@@ -421,11 +460,11 @@ class PANOrchestrator:
                 final_state.update(partial_state)
         return _finalize_result(final_state, node_sequence)
 
-    def stream(self, service_type, query, applicant_label, cloud_consent=False):
+    def stream(self, service_type, query, applicant_label, cloud_consent=False, confirmed_complaint=False):
         """Generator: yields (node_name, result_dict_so_far) after each node
         completes, so a caller can advance it one step per Streamlit rerun
         and render genuinely live progress instead of a post-hoc trace."""
-        initial_state = _initial_state(service_type, query, applicant_label, cloud_consent)
+        initial_state = _initial_state(service_type, query, applicant_label, cloud_consent, confirmed_complaint)
         node_sequence = []
         final_state = dict(initial_state)
         for update in self._graph.stream(initial_state, stream_mode="updates"):
