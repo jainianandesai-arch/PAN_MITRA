@@ -44,6 +44,7 @@ class PANState(TypedDict, total=False):
     escalated: bool
     escalation_reason: str
     confirmed_complaint: bool
+    additional_guidance: str
     messages: list
     tool_calls_made: list
     iterations: int
@@ -218,6 +219,33 @@ def looks_like_complaint(query):
     return any(_term_matches(text, term) for term in _COMPLAINT_TERMS)
 
 
+def _query_also_wants_guidance(query):
+    """Unlike looks_like_complaint(), this one genuinely needs the LLM: a
+    fixed keyword list can't tell "just the complaint" apart from "also
+    asking what documents I need" -- phrasing varies too much. Only called
+    after a citizen has already confirmed the complaint, to decide whether
+    to append real guidance alongside the escalation. Fails closed (False)
+    on any provider/parsing failure so a flaky LLM never blocks escalation."""
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "The citizen's message below already looks like a complaint about a delayed or "
+                "undelivered PAN service. Decide whether it ALSO contains a distinct request for "
+                "guidance or information -- e.g. asking what documents are needed, how to apply, "
+                "eligibility, or next steps -- beyond just reporting the problem. "
+                'Respond with ONLY a single JSON object: {"wants_guidance": true} or {"wants_guidance": false}.'
+            ),
+        },
+        {"role": "user", "content": query or ""},
+    ]
+    try:
+        result = _llm_manager.generate(messages, task="rag_answer", temperature=0.0, max_tokens=20)
+        return bool(json.loads(result.content).get("wants_guidance"))
+    except Exception:
+        return False
+
+
 def _classify_and_score(query, service_type):
     resolved = service_type if service_type in RECORDS_BY_KEY else detect_service_key(query)
     if resolved in RECORDS_BY_KEY:
@@ -293,6 +321,12 @@ def escalate_node(state: PANState) -> PANState:
             f"and escalated to an officer. Reference: PAN-{state.get('tracking_id')}. You'll be contacted for "
             "follow-up, or you can check Escalated to Officer for updates."
         )
+        if _query_also_wants_guidance(state.get("query", "")):
+            state["additional_guidance"] = "\n\n".join(filter(None, [
+                _tool_lookup_guidance(state, {}),
+                _tool_check_documents(state, {}),
+                _tool_check_eligibility(state, {}),
+            ]))
     else:
         _tool_escalate_to_officer(state, {"reason": "Low confidence resolving PAN service from query"})
         state["final_answer"] = (
@@ -419,6 +453,7 @@ def _initial_state(service_type, query, applicant_label, cloud_consent, confirme
         "escalated": False,
         "escalation_reason": "",
         "confirmed_complaint": bool(confirmed_complaint),
+        "additional_guidance": "",
         "messages": [],
         "tool_calls_made": [],
         "iterations": 0,
@@ -436,6 +471,7 @@ def _finalize_result(final_state: dict, node_sequence: list) -> dict:
         "escalated": final_state.get("escalated", False),
         "escalation_reason": final_state.get("escalation_reason", ""),
         "confirmed_complaint": final_state.get("confirmed_complaint", False),
+        "additional_guidance": final_state.get("additional_guidance", ""),
         "tracking_id": final_state.get("tracking_id"),
         "tool_calls_made": final_state.get("tool_calls_made", []),
         "node_sequence": node_sequence,
