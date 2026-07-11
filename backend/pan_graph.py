@@ -45,7 +45,9 @@ class PANState(TypedDict, total=False):
     escalated: bool
     escalation_reason: str
     confirmed_complaint: bool
+    complaint_reference_number: str
     additional_guidance: str
+    quick_resolution: Optional[dict]
     messages: list
     tool_calls_made: list
     iterations: int
@@ -99,6 +101,7 @@ def _tool_escalate_to_officer(state, args):
     state["escalated"] = True
     state["escalation_reason"] = reason
 
+    ref = state.get("complaint_reference_number", "")
     tracking_id = pan_tracking.escalate(
         app_id=state.get("tracking_id"),
         service_type=state.get("service_type") or "new_pan",
@@ -106,6 +109,7 @@ def _tool_escalate_to_officer(state, args):
         query=state.get("query", ""),
         confidence=state.get("confidence", 0.0),
         reason=reason,
+        notes=f"Citizen-supplied Acknowledgment/Coupon Number: {ref}" if ref else "",
     )
     if tracking_id is None:
         return "Could not escalate (storage error)."
@@ -220,6 +224,60 @@ def looks_like_complaint(query):
     return any(_term_matches(text, term) for term in _COMPLAINT_TERMS)
 
 
+# Quick Resolution Matrix -- from the CSC PAN Grievance policy's "Part 1:
+# Citizen Assistance & Self-Service Guide". Matched against a confirmed
+# complaint's own query text (deterministic, same reasoning as the checks
+# above) so the citizen sees the standard action/timeline for their specific
+# issue alongside the escalation, not just a generic "you'll be contacted."
+_QUICK_RESOLUTION_MATRIX = (
+    {
+        "match_terms": ("payment deducted", "money deducted", "amount deducted", "paid but", "no receipt", "payment failed", "fee deducted"),
+        "issue": 'Payment Deducted, No Receipt',
+        "action": "Wait 24 to 48 hours for banking gateway reconciliation. Do not re-apply immediately.",
+        "window": "48 Hours",
+    },
+    {
+        "match_terms": ("objection raised", "document failed", "document rejected", "documents rejected", "rejected my document"),
+        "issue": 'Status: "Objection Raised"',
+        "action": "Visit your VLE or the official portal link to check which document failed validation, then re-upload a clear copy.",
+        "window": "3-5 Working Days",
+    },
+    {
+        "match_terms": (
+            "not received", "not delivered", "not yet delivered", "not yet received", "have not received",
+            "haven't received", "havent received", "did not receive", "didn't receive", "didnt receive",
+            "not arrived", "hasn't arrived", "hasnt arrived", "has not arrived", "dispatched",
+            # Not every "not delivered" phrasing is spelled correctly (e.g.
+            # "delievered") -- these broader delay/timeline signals catch
+            # the same real-world complaint even when exact phrases don't
+            # match, since delivery delay is what "time frame" almost always
+            # means in a PAN card context.
+            "time frame", "timeframe", "beyond time",
+        ),
+        "issue": "PAN Card Dispatched but Undelivered",
+        "action": "Track the shipment on the India Post website using the Speed Post tracking number from your dispatch notice.",
+        "window": "5-7 Working Days",
+    },
+    {
+        "match_terms": ("wrong name on card", "wrong spelling", "spelling mistake", "data error", "printed wrong", "wrong details on my pan", "error on my pan card", "wrong dob on"),
+        "issue": "Data Error on Printed Card",
+        "action": 'File a formal "PAN Correction Application" with fresh, verified supporting documents.',
+        "window": "7-10 Working Days",
+    },
+)
+
+
+def match_quick_resolution(query):
+    """Returns the matching Quick Resolution Matrix entry for a complaint's
+    query, or None if it doesn't fit one of the four standard categories --
+    in which case it just goes to a human officer with no canned action."""
+    text = f" {(query or '').lower()} "
+    for entry in _QUICK_RESOLUTION_MATRIX:
+        if any(_term_matches(text, term) for term in entry["match_terms"]):
+            return entry
+    return None
+
+
 def _query_also_wants_guidance(query):
     """Unlike looks_like_complaint(), this one genuinely needs the LLM: a
     fixed keyword list can't tell "just the complaint" apart from "also
@@ -329,6 +387,7 @@ def escalate_node(state: PANState) -> PANState:
                 _tool_check_documents(state, {}),
                 _tool_check_eligibility(state, {}),
             ]))
+        state["quick_resolution"] = match_quick_resolution(state.get("query", ""))
     else:
         _tool_escalate_to_officer(state, {"reason": "Low confidence resolving PAN service from query"})
         state["final_answer"] = (
@@ -445,7 +504,7 @@ def build_pan_graph():
     return graph.compile()
 
 
-def _initial_state(service_type, query, applicant_label, cloud_consent, confirmed_complaint=False) -> PANState:
+def _initial_state(service_type, query, applicant_label, cloud_consent, confirmed_complaint=False, complaint_reference_number="") -> PANState:
     return {
         "query": query or "",
         "service_type": service_type or "",
@@ -455,7 +514,9 @@ def _initial_state(service_type, query, applicant_label, cloud_consent, confirme
         "escalated": False,
         "escalation_reason": "",
         "confirmed_complaint": bool(confirmed_complaint),
+        "complaint_reference_number": complaint_reference_number or "",
         "additional_guidance": "",
+        "quick_resolution": None,
         "messages": [],
         "tool_calls_made": [],
         "iterations": 0,
@@ -474,6 +535,8 @@ def _finalize_result(final_state: dict, node_sequence: list) -> dict:
         "escalation_reason": final_state.get("escalation_reason", ""),
         "confirmed_complaint": final_state.get("confirmed_complaint", False),
         "additional_guidance": final_state.get("additional_guidance", ""),
+        "quick_resolution": final_state.get("quick_resolution"),
+        "official_tracking_url": RECORDS_BY_KEY.get(final_state.get("service_type"), {}).get("official_tracking_url", ""),
         "tracking_id": final_state.get("tracking_id"),
         "tool_calls_made": final_state.get("tool_calls_made", []),
         "node_sequence": node_sequence,
@@ -484,12 +547,12 @@ class PANOrchestrator:
     def __init__(self):
         self._graph = build_pan_graph()
 
-    def run(self, service_type, query, applicant_label, cloud_consent=False, confirmed_complaint=False):
+    def run(self, service_type, query, applicant_label, cloud_consent=False, confirmed_complaint=False, complaint_reference_number=""):
         """Blocking, single-call convenience wrapper -- runs the whole graph
         and returns the final result. Use .stream() instead when you want to
         show live per-node progress in a UI (see PAN Mitra's New Request
         tab, which streams this exactly like TMF's TMFOrchestrator.run())."""
-        initial_state = _initial_state(service_type, query, applicant_label, cloud_consent, confirmed_complaint)
+        initial_state = _initial_state(service_type, query, applicant_label, cloud_consent, confirmed_complaint, complaint_reference_number)
         node_sequence = []
         final_state = dict(initial_state)
         for update in self._graph.stream(initial_state, stream_mode="updates"):
@@ -498,11 +561,11 @@ class PANOrchestrator:
                 final_state.update(partial_state)
         return _finalize_result(final_state, node_sequence)
 
-    def stream(self, service_type, query, applicant_label, cloud_consent=False, confirmed_complaint=False):
+    def stream(self, service_type, query, applicant_label, cloud_consent=False, confirmed_complaint=False, complaint_reference_number=""):
         """Generator: yields (node_name, result_dict_so_far) after each node
         completes, so a caller can advance it one step per Streamlit rerun
         and render genuinely live progress instead of a post-hoc trace."""
-        initial_state = _initial_state(service_type, query, applicant_label, cloud_consent, confirmed_complaint)
+        initial_state = _initial_state(service_type, query, applicant_label, cloud_consent, confirmed_complaint, complaint_reference_number)
         node_sequence = []
         final_state = dict(initial_state)
         for update in self._graph.stream(initial_state, stream_mode="updates"):

@@ -150,11 +150,16 @@ def update_status(app_id, status, notes=""):
         return False
 
 
-def escalate(app_id, service_type, applicant_label, query, confidence, reason):
+def escalate(app_id, service_type, applicant_label, query, confidence, reason, notes=""):
     """Create-or-update a single row as escalated -- the one place any
     escalation (deterministic low-confidence gate or the agent's own
     escalate_to_officer tool) goes through, so it's never possible for an
-    escalation to exist without showing up in Tracked Requests/Analytics."""
+    escalation to exist without showing up in Tracked Requests/Analytics.
+
+    notes carries citizen-supplied complaint reference details (e.g.
+    Acknowledgment/Coupon number) for the reviewing officer -- optional,
+    never required, and never Aadhaar/PAN/OTP (blocked upstream by the
+    PII guard before this is ever called)."""
 
     reason = reason or "Needs human review"
 
@@ -164,10 +169,10 @@ def escalate(app_id, service_type, applicant_label, query, confidence, reason):
                 conn.execute(
                     """
                     UPDATE pan_applications
-                    SET status = 'escalated', updated_at = ?, escalation_reason = ?
+                    SET status = 'escalated', updated_at = ?, escalation_reason = ?, notes = ?
                     WHERE id = ?
                     """,
-                    (_now(), _redact(reason)[:2000], int(app_id)),
+                    (_now(), _redact(reason)[:2000], _redact(notes)[:2000], int(app_id)),
                 )
                 return int(app_id)
         except Exception:
@@ -180,9 +185,9 @@ def escalate(app_id, service_type, applicant_label, query, confidence, reason):
                 """
                 INSERT INTO pan_applications (
                     created_at, updated_at, service_type, applicant_label,
-                    query, status, confidence, escalation_reason
+                    query, status, confidence, escalation_reason, notes
                 )
-                VALUES (?, ?, ?, ?, ?, 'escalated', ?, ?)
+                VALUES (?, ?, ?, ?, ?, 'escalated', ?, ?, ?)
                 """,
                 (
                     timestamp,
@@ -192,6 +197,7 @@ def escalate(app_id, service_type, applicant_label, query, confidence, reason):
                     _redact(query)[:4000],
                     float(confidence or 0.0),
                     _redact(reason)[:2000],
+                    _redact(notes)[:2000],
                 ),
             )
             return cursor.lastrowid
