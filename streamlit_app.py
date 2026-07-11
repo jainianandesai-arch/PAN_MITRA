@@ -155,21 +155,30 @@ def _render_new_request():
         "actual ID numbers are entered only on the official government portal."
     )
 
-    with st.form("pan_new_request_form"):
-        service_label = st.selectbox("PAN service", options=[label for _, label in SERVICE_OPTIONS], key="pan_form_service")
+    # Deleting a form widget's session_state key and calling st.rerun() does
+    # NOT actually reset what's displayed -- Streamlit's frontend keeps the
+    # widget's last-typed value since it's still "the same" widget instance.
+    # Bumping this nonce into each widget's key forces genuinely fresh
+    # widgets (blank) after Clear, instead of the old text just sitting there.
+    form_nonce = st.session_state.get("pan_form_nonce", 0)
+
+    with st.form(f"pan_new_request_form_{form_nonce}"):
+        service_label = st.selectbox(
+            "PAN service", options=[label for _, label in SERVICE_OPTIONS], key=f"pan_form_service_{form_nonce}"
+        )
         applicant_label = st.text_input(
             "Applicant display label",
             placeholder="e.g. Citizen at Counter 2 (no real name/ID required)",
             max_chars=100,
-            key="pan_form_applicant",
+            key=f"pan_form_applicant_{form_nonce}",
         )
         query = st.text_area(
             "What does the citizen need help with?",
             placeholder="e.g. I want to apply for a new PAN card, what documents do I need?",
             height=100,
-            key="pan_form_query",
+            key=f"pan_form_query_{form_nonce}",
         )
-        cloud_consent = st.checkbox("Citizen consents to cloud AI processing", value=True, key="pan_form_consent")
+        cloud_consent = st.checkbox("Citizen consents to cloud AI processing", value=True, key=f"pan_form_consent_{form_nonce}")
         col_submit, col_clear = st.columns([3, 1])
         with col_submit:
             submitted = st.form_submit_button("Submit Request", type="primary", use_container_width=True)
@@ -180,10 +189,9 @@ def _render_new_request():
         for key in (
             "pan_run_gen", "pan_run_result", "pan_run_error", "pan_run_phase",
             "pan_last_result", "pan_last_result_at", "pan_pending_request",
-            "pan_form_service", "pan_form_applicant", "pan_form_query",
-            "pan_form_consent",
         ):
             st.session_state.pop(key, None)
+        st.session_state["pan_form_nonce"] = form_nonce + 1
         st.rerun()
 
     if submitted:
