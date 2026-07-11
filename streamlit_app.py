@@ -134,6 +134,9 @@ def _render_pan_result(result):
             badges += f' <span class="csc-badge csc-badge-green">Reference: PAN-{result["tracking_id"]}</span>'
         st.markdown(badges, unsafe_allow_html=True)
         st.caption(f"Reason: {result.get('escalation_reason') or 'Escalated for human review'} — now waiting for an officer in the Escalated to Officer tab.")
+        if result.get("additional_guidance"):
+            st.markdown("**You also asked for guidance — here's what we have while you wait:**")
+            st.markdown(result["additional_guidance"])
     else:
         badges = ""
         if result.get("tracking_id"):
