@@ -155,21 +155,30 @@ def _render_new_request():
         "actual ID numbers are entered only on the official government portal."
     )
 
-    with st.form("pan_new_request_form"):
-        service_label = st.selectbox("PAN service", options=[label for _, label in SERVICE_OPTIONS], key="pan_form_service")
+    # Deleting a form widget's session_state key and calling st.rerun() does
+    # NOT actually reset what's displayed -- Streamlit's frontend keeps the
+    # widget's last-typed value since it's still "the same" widget instance.
+    # Bumping this nonce into each widget's key forces genuinely fresh
+    # widgets (blank) after Clear, instead of the old text just sitting there.
+    form_nonce = st.session_state.get("pan_form_nonce", 0)
+
+    with st.form(f"pan_new_request_form_{form_nonce}"):
+        service_label = st.selectbox(
+            "PAN service", options=[label for _, label in SERVICE_OPTIONS], key=f"pan_form_service_{form_nonce}"
+        )
         applicant_label = st.text_input(
             "Applicant display label",
             placeholder="e.g. Citizen at Counter 2 (no real name/ID required)",
             max_chars=100,
-            key="pan_form_applicant",
+            key=f"pan_form_applicant_{form_nonce}",
         )
         query = st.text_area(
             "What does the citizen need help with?",
             placeholder="e.g. I want to apply for a new PAN card, what documents do I need?",
             height=100,
-            key="pan_form_query",
+            key=f"pan_form_query_{form_nonce}",
         )
-        cloud_consent = st.checkbox("Citizen consents to cloud AI processing", value=True, key="pan_form_consent")
+        cloud_consent = st.checkbox("Citizen consents to cloud AI processing", value=True, key=f"pan_form_consent_{form_nonce}")
         col_submit, col_clear = st.columns([3, 1])
         with col_submit:
             submitted = st.form_submit_button("Submit Request", type="primary", use_container_width=True)
@@ -180,10 +189,9 @@ def _render_new_request():
         for key in (
             "pan_run_gen", "pan_run_result", "pan_run_error", "pan_run_phase",
             "pan_last_result", "pan_last_result_at", "pan_pending_request",
-            "pan_form_service", "pan_form_applicant", "pan_form_query",
-            "pan_form_consent",
         ):
             st.session_state.pop(key, None)
+        st.session_state["pan_form_nonce"] = form_nonce + 1
         st.rerun()
 
     if submitted:
@@ -220,22 +228,33 @@ def _render_new_request():
     if phase == "confirm_complaint":
         st.markdown('<div class="section-hdr">One Moment</div>', unsafe_allow_html=True)
         st.warning(
-            "🧾 This sounds like it might be a **complaint** about a delayed or undelivered service, "
-            "not a request for guidance. Would you like to file a complaint? It will be escalated "
-            "directly to a human officer with a reference number for follow-up."
+            "🧾 This sounds like it might be a **complaint** about a delayed or undelivered service. "
+            "A complaint needs a human officer, not guidance -- would you like to file it?"
         )
         c1, c2 = st.columns(2)
         with c1:
             file_complaint = st.button("✅ Yes, file a complaint", type="primary", use_container_width=True, key="pan_confirm_complaint_yes")
         with c2:
-            just_guidance = st.button("↩️ No, just give me guidance", use_container_width=True, key="pan_confirm_complaint_no")
-        if file_complaint or just_guidance:
+            not_a_complaint = st.button("❌ No, this isn't a complaint", use_container_width=True, key="pan_confirm_complaint_no")
+        if file_complaint:
             pending = st.session_state.pop("pan_pending_request", {})
-            st.session_state["pan_run_gen"] = default_orchestrator.stream(confirmed_complaint=file_complaint, **pending)
+            st.session_state["pan_run_gen"] = default_orchestrator.stream(confirmed_complaint=True, **pending)
             st.session_state["pan_run_result"] = None
             st.session_state["pan_run_error"] = None
             st.session_state["pan_run_phase"] = "advance"
             st.rerun()
+        elif not_a_complaint:
+            pending = st.session_state.pop("pan_pending_request", {})
+            # Not escalated and not given guidance either -- just a signal
+            # logged for later review, so the keyword list can be tuned
+            # against real cases where it over-fired.
+            pan_tracking.log_declined_complaint(
+                query=pending.get("query", ""),
+                applicant_label=pending.get("applicant_label", ""),
+                service_type=pending.get("service_type", ""),
+            )
+            st.session_state["pan_run_phase"] = "idle"
+            st.info("Thanks — noted. No complaint was filed and no guidance was generated for this request.")
 
     elif phase == "advance":
         prior_result = st.session_state.get("pan_run_result")
