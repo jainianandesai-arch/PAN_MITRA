@@ -16,6 +16,7 @@ tested module untouched.
 from __future__ import annotations
 
 import json
+import logging
 import re
 from typing import Optional, TypedDict
 
@@ -241,8 +242,9 @@ def _query_also_wants_guidance(query):
     ]
     try:
         result = _llm_manager.generate(messages, task="rag_answer", temperature=0.0, max_tokens=20)
-        return bool(json.loads(result.content).get("wants_guidance"))
-    except Exception:
+        return bool(_parse_decision(result.content).get("wants_guidance"))
+    except Exception as e:
+        logging.info(f"_query_also_wants_guidance: LLM check failed, defaulting to False: {e}")
         return False
 
 
