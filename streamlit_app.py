@@ -228,22 +228,33 @@ def _render_new_request():
     if phase == "confirm_complaint":
         st.markdown('<div class="section-hdr">One Moment</div>', unsafe_allow_html=True)
         st.warning(
-            "🧾 This sounds like it might be a **complaint** about a delayed or undelivered service, "
-            "not a request for guidance. Would you like to file a complaint? It will be escalated "
-            "directly to a human officer with a reference number for follow-up."
+            "🧾 This sounds like it might be a **complaint** about a delayed or undelivered service. "
+            "A complaint needs a human officer, not guidance -- would you like to file it?"
         )
         c1, c2 = st.columns(2)
         with c1:
             file_complaint = st.button("✅ Yes, file a complaint", type="primary", use_container_width=True, key="pan_confirm_complaint_yes")
         with c2:
-            just_guidance = st.button("↩️ No, just give me guidance", use_container_width=True, key="pan_confirm_complaint_no")
-        if file_complaint or just_guidance:
+            not_a_complaint = st.button("❌ No, this isn't a complaint", use_container_width=True, key="pan_confirm_complaint_no")
+        if file_complaint:
             pending = st.session_state.pop("pan_pending_request", {})
-            st.session_state["pan_run_gen"] = default_orchestrator.stream(confirmed_complaint=file_complaint, **pending)
+            st.session_state["pan_run_gen"] = default_orchestrator.stream(confirmed_complaint=True, **pending)
             st.session_state["pan_run_result"] = None
             st.session_state["pan_run_error"] = None
             st.session_state["pan_run_phase"] = "advance"
             st.rerun()
+        elif not_a_complaint:
+            pending = st.session_state.pop("pan_pending_request", {})
+            # Not escalated and not given guidance either -- just a signal
+            # logged for later review, so the keyword list can be tuned
+            # against real cases where it over-fired.
+            pan_tracking.log_declined_complaint(
+                query=pending.get("query", ""),
+                applicant_label=pending.get("applicant_label", ""),
+                service_type=pending.get("service_type", ""),
+            )
+            st.session_state["pan_run_phase"] = "idle"
+            st.info("Thanks — noted. No complaint was filed and no guidance was generated for this request.")
 
     elif phase == "advance":
         prior_result = st.session_state.get("pan_run_result")

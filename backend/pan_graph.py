@@ -194,9 +194,8 @@ _GENERIC_PAN_TERMS = ("pan", "pan card", "pancard", "पैन")
 
 # Signals that a query is reporting a problem with a service already in
 # progress (delay/non-delivery/dissatisfaction) rather than asking for
-# guidance on how to use one -- these get a confirmation prompt in the UI
-# before escalating, since a keyword hit alone is too weak to silently
-# reroute someone who was actually just asking a normal question.
+# guidance on how to use one -- a genuine complaint needs a human, not
+# generic guidance, so a hit here forces straight-to-escalate.
 _COMPLAINT_TERMS = (
     "complaint", "complain", "grievance",
     "not received", "not delivered", "not yet delivered", "not yet received",
@@ -287,11 +286,12 @@ def escalate_node(state: PANState) -> PANState:
     if state.get("confirmed_complaint"):
         _tool_escalate_to_officer(
             state,
-            {"reason": "Citizen confirmed this is a complaint (service delay/non-delivery) -- needs human resolution, not guidance"},
+            {"reason": "Detected as a complaint (service delay/non-delivery) -- needs human resolution, not guidance"},
         )
         state["final_answer"] = (
-            f"Your complaint has been logged and escalated to an officer. Reference: PAN-{state.get('tracking_id')}. "
-            "You'll be contacted for follow-up, or you can check Escalated to Officer for updates."
+            "Thank you for letting us know, and sorry for the inconvenience. Your complaint has been logged "
+            f"and escalated to an officer. Reference: PAN-{state.get('tracking_id')}. You'll be contacted for "
+            "follow-up, or you can check Escalated to Officer for updates."
         )
     else:
         _tool_escalate_to_officer(state, {"reason": "Low confidence resolving PAN service from query"})

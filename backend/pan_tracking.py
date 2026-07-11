@@ -63,7 +63,38 @@ def _connect():
         )
         """
     )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS complaint_detection_feedback (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            created_at TEXT NOT NULL,
+            service_type TEXT,
+            applicant_label TEXT,
+            query TEXT
+        )
+        """
+    )
     return conn
+
+
+def log_declined_complaint(query, applicant_label, service_type=""):
+    """Records a case where the complaint-language heuristic (looks_like_complaint)
+    fired but the citizen said it wasn't actually a complaint -- kept separate
+    from pan_applications (not a tracked request, no status/lifecycle) so it
+    doesn't affect Tracked Requests/Analytics. Purely a feedback signal for
+    later tuning of the complaint keyword list."""
+    try:
+        with _connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO complaint_detection_feedback (created_at, service_type, applicant_label, query)
+                VALUES (?, ?, ?, ?)
+                """,
+                (_now(), service_type or "", _redact(applicant_label)[:200], _redact(query)[:4000]),
+            )
+            return True
+    except Exception:
+        return False
 
 
 def create_application(service_type, applicant_label, guidance_shown="", confidence=0.0, notes="", query="", status="guidance_provided"):
