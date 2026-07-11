@@ -134,6 +134,13 @@ def _render_pan_result(result):
             badges += f' <span class="csc-badge csc-badge-green">Reference: PAN-{result["tracking_id"]}</span>'
         st.markdown(badges, unsafe_allow_html=True)
         st.caption(f"Reason: {result.get('escalation_reason') or 'Escalated for human review'} — now waiting for an officer in the Escalated to Officer tab.")
+        qr = result.get("quick_resolution")
+        if qr:
+            st.markdown(
+                f"**📋 Quick Resolution Guide — {qr['issue']}**\n\n"
+                f"{qr['action']}\n\n"
+                f"*Standard resolution window: {qr['window']}*"
+            )
         if result.get("additional_guidance"):
             st.markdown("**You also asked for guidance — here's what we have while you wait:**")
             st.markdown(result["additional_guidance"])
@@ -192,6 +199,7 @@ def _render_new_request():
         for key in (
             "pan_run_gen", "pan_run_result", "pan_run_error", "pan_run_phase",
             "pan_last_result", "pan_last_result_at", "pan_pending_request",
+            "pan_complaint_reference_number",
         ):
             st.session_state.pop(key, None)
         st.session_state["pan_form_nonce"] = form_nonce + 1
@@ -234,6 +242,12 @@ def _render_new_request():
             "🧾 This sounds like it might be a **complaint** about a delayed or undelivered service. "
             "A complaint needs a human officer, not guidance -- would you like to file it?"
         )
+        reference_number = st.text_input(
+            "Acknowledgment or Coupon Number (optional, if you have it)",
+            placeholder="e.g. 15-digit Protean/NSDL acknowledgment number or 9-digit UTIITSL coupon number",
+            max_chars=30,
+            key="pan_complaint_reference_number",
+        )
         c1, c2 = st.columns(2)
         with c1:
             file_complaint = st.button("✅ Yes, file a complaint", type="primary", use_container_width=True, key="pan_confirm_complaint_yes")
@@ -241,13 +255,17 @@ def _render_new_request():
             not_a_complaint = st.button("❌ No, this isn't a complaint", use_container_width=True, key="pan_confirm_complaint_no")
         if file_complaint:
             pending = st.session_state.pop("pan_pending_request", {})
-            st.session_state["pan_run_gen"] = default_orchestrator.stream(confirmed_complaint=True, **pending)
+            st.session_state.pop("pan_complaint_reference_number", None)
+            st.session_state["pan_run_gen"] = default_orchestrator.stream(
+                confirmed_complaint=True, complaint_reference_number=reference_number.strip(), **pending
+            )
             st.session_state["pan_run_result"] = None
             st.session_state["pan_run_error"] = None
             st.session_state["pan_run_phase"] = "advance"
             st.rerun()
         elif not_a_complaint:
             pending = st.session_state.pop("pan_pending_request", {})
+            st.session_state.pop("pan_complaint_reference_number", None)
             # Not escalated and not given guidance either -- just a signal
             # logged for later review, so the keyword list can be tuned
             # against real cases where it over-fired.
@@ -376,6 +394,8 @@ def _render_escalated():
             st.caption(f"Applicant: {item.get('applicant_label', '')}")
             if item.get("query"):
                 st.caption(f"Query: {item['query']}")
+            if item.get("notes"):
+                st.caption(f"📎 {item['notes']}")
             if st.button(f"✅ Reviewed (PAN-{rid})", key=f"pan_hitl_{rid}"):
                 if pan_tracking.resolve_escalation(rid, operator_note="Reviewed via PAN Mitra"):
                     st.success(f"PAN-{rid} resolved.")
@@ -405,6 +425,9 @@ def _render_pipeline():
                 f"routed to a human officer instead of being auto-resolved. Reason: "
                 f"{result.get('escalation_reason') or 'Escalated for human review'}."
             )
+            qr = result.get("quick_resolution")
+            if qr:
+                st.caption(f"📋 Matched Quick Resolution category: **{qr['issue']}** — standard window {qr['window']}.")
         sequence = result.get("node_sequence", [])
         nodes_html = []
         for i, node in enumerate(sequence):

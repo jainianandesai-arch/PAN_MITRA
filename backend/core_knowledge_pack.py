@@ -294,6 +294,10 @@ CORE_SERVICE_RECORDS = (
         common_errors=("Name mismatch. Resolution: enter name exactly as proof document.", "Wrong category/form type. Resolution: verify applicant category before submit.", "Payment/acknowledgement missing. Resolution: check official PAN portal status."),
         official_tracking_url="https://www.protean-tinpan.com/services/pan/pan-index.html",
         faq=("What is most important? Exact name/DOB/address match with proof documents.",),
+        important_notes=(
+            "VLE scan tip: applicant photo at 300 DPI (Color), signature at 600 DPI (Black & White), and all supporting documents flattened into a single legible PDF under 300 KB -- blurred or poorly cropped scans cause most backend rejections.",
+            "If status doesn't update for over 15 days, escalate directly through the Protean SAMADHAAN portal or the UTIITSL Grievance Cell instead of waiting further.",
+        ),
     ),
     _record(
         key="pan_correction",
@@ -313,6 +317,10 @@ CORE_SERVICE_RECORDS = (
         status_tracking="Track with acknowledgement/reference number on official PAN portal.",
         common_errors=("Correction proof mismatch. Resolution: upload correct supporting proof.", "Wrong field selected. Resolution: select only fields needing correction.", "Existing PAN details mismatch. Resolution: verify PAN holder records before submit."),
         official_tracking_url="https://www.protean-tinpan.com/services/pan/pan-index.html",
+        important_notes=(
+            "VLE scan tip: correction proof at 300 DPI (Color), signature at 600 DPI (Black & White), flattened into a single legible PDF under 300 KB.",
+            "If status doesn't update for over 15 days, escalate directly through the Protean SAMADHAAN portal or the UTIITSL Grievance Cell instead of waiting further.",
+        ),
     ),
     _record(
         key="pan_reprint",
@@ -332,6 +340,10 @@ CORE_SERVICE_RECORDS = (
         common_errors=("Wrong PAN/contact details. Resolution: verify details before OTP/payment.", "Reprint not allowed. Resolution: use correction/change flow if data needs update.", "Payment pending. Resolution: check official receipt/status before retry."),
         comparison=("PAN Reprint is for an existing PAN card copy when details do not need correction.", "PAN Correction is for changing PAN data such as name, DOB, address, or other supported details.", "Use correction first if PAN data is wrong; use reprint when PAN data is already correct."),
         official_tracking_url="https://www.protean-tinpan.com/services/pan/pan-index.html",
+        important_notes=(
+            "If the card was dispatched but not delivered, track the shipment on the India Post website using the Speed Post tracking number from the dispatch notice.",
+            "If status doesn't update for over 15 days, escalate directly through the Protean SAMADHAAN portal or the UTIITSL Grievance Cell instead of waiting further.",
+        ),
     ),
     _record(
         key="instant_epan",
